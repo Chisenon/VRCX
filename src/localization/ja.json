@@ -2091,6 +2091,8 @@
             "zoom_out": "縮小",
             "mode_fit": "フィットモードに切り替え",
             "mode_free": "自由切り抜きに切り替え",
+            "fill_vertical": "縦にフィット",
+            "fill_horizontal": "横にフィット",
             "reset": "リセット"
         },
         "gallery_select": {

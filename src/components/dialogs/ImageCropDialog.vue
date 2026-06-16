@@ -116,6 +116,21 @@
                         </Button>
                     </TooltipWrapper>
 
+                    <div class="w-px h-5 bg-border mx-1" />
+
+                    <TooltipWrapper :content="fillTooltip">
+                        <Button
+                            data-testid="fill-mode-toggle"
+                            size="icon-sm"
+                            variant="outline"
+                            class="rounded-full h-8 w-8"
+                            :disabled="loading"
+                            @click="toggleFillMode">
+                            <ArrowUpDown v-if="fillMode === 'vertical'" class="h-4 w-4" />
+                            <ArrowLeftRight v-else class="h-4 w-4" />
+                        </Button>
+                    </TooltipWrapper>
+
                     <TooltipWrapper :content="t('dialog.image_crop.reset')">
                         <Button
                             size="icon-sm"
@@ -146,6 +161,8 @@
 
 <script setup>
     import {
+        ArrowLeftRight,
+        ArrowUpDown,
         Expand,
         FlipHorizontal,
         FlipVertical,
@@ -157,7 +174,7 @@
         ZoomOut
     } from 'lucide-vue-next';
     import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-    import { nextTick, ref, watch } from 'vue';
+    import { computed, nextTick, ref, watch } from 'vue';
     import { Button } from '@/components/ui/button';
     import { Cropper } from 'vue-advanced-cropper';
     import { Slider } from '@/components/ui/slider';
@@ -196,6 +213,14 @@
     const loading = ref(false);
     const freeMode = ref(false);
     const fitCropperToken = ref(0);
+    const fillMode = ref('vertical');
+    const VISIBLE_AREA_MARGIN_PX = 10;
+    const AUTO_FIT_MAX_STEPS = 4;
+    const AUTO_FIT_EPSILON = 0.001;
+
+    const fillTooltip = computed(() => {
+        return t(`dialog.image_crop.fill_${fillMode.value}`);
+    });
 
     const zoomSliderValue = ref([50]);
     const lastZoomRatio = ref(1);
@@ -222,6 +247,7 @@
             if (!open) {
                 loading.value = false;
                 freeMode.value = false;
+                fillMode.value = 'vertical';
                 zoomSliderValue.value = [50];
                 lastZoomRatio.value = 1;
                 resetCropState();
@@ -263,6 +289,43 @@
     /**
      *
      */
+    async function applyFillMode(mode) {
+        if (!cropperRef.value) return;
+        await ensureImageFitsEditableArea();
+
+        cropperRef.value.setCoordinates(({ imageSize, coordinates }) => {
+            if (!imageSize?.width || !imageSize?.height) {
+                return coordinates || {};
+            }
+            const stencilAspect =
+                coordinates?.width && coordinates?.height
+                    ? coordinates.width / coordinates.height
+                    : props.aspectRatio;
+            return calculateCenteredFillCoordinates(
+                mode,
+                imageSize.width,
+                imageSize.height,
+                stencilAspect
+            );
+        }, {
+            transitions: true,
+            autoZoom: false
+        });
+        await nextTick();
+        await ensureStencilFitsEditableArea();
+    }
+
+    /**
+     *
+     */
+    async function toggleFillMode() {
+        await applyFillMode(fillMode.value);
+        fillMode.value = fillMode.value === 'vertical' ? 'horizontal' : 'vertical';
+    }
+
+    /**
+     *
+     */
     function fillCropper() {
         cropperRef.value?.setCoordinates(
             ({ imageSize }) => ({
@@ -276,6 +339,146 @@
                 autoZoom: false
             }
         );
+    }
+
+    /**
+     * @param {'vertical' | 'horizontal'} mode
+     * @param {number} imageWidth
+     * @param {number} imageHeight
+     * @param {number} stencilAspect
+     */
+    function calculateCenteredFillCoordinates(
+        mode,
+        imageWidth,
+        imageHeight,
+        stencilAspect
+    ) {
+        let width;
+        let height;
+        if (mode === 'vertical') {
+            height = imageHeight;
+            width = height * stencilAspect;
+        } else {
+            width = imageWidth;
+            height = width / stencilAspect;
+        }
+        return {
+            left: (imageWidth - width) / 2,
+            top: (imageHeight - height) / 2,
+            width,
+            height
+        };
+    }
+
+    /**
+     * Keep the stencil inside the visible editor area by zooming out when needed.
+     * @param {any} [result]
+     */
+    async function ensureImageFitsEditableArea() {
+        if (!cropperRef.value) return;
+        for (let i = 0; i < AUTO_FIT_MAX_STEPS; i += 1) {
+            const result = cropperRef.value.getResult();
+            if (!result?.visibleArea || !result?.image) return;
+            const { x: marginX, y: marginY } = getVisibleAreaMarginInImageUnits(result);
+            const imageOverflow = getImageOverflowFromVisibleArea(result, marginX, marginY);
+            if (imageOverflow.max <= AUTO_FIT_EPSILON) {
+                return;
+            }
+
+            const targetVisibleWidth = result.image.width + marginX * 2;
+            const targetVisibleHeight = result.image.height + marginY * 2;
+            const ratio = Math.max(
+                targetVisibleWidth / Math.max(1, result.visibleArea.width),
+                targetVisibleHeight / Math.max(1, result.visibleArea.height)
+            );
+            if (ratio <= 1 + AUTO_FIT_EPSILON) {
+                return;
+            }
+
+            const center = {
+                left: result.image.width / 2,
+                top: result.image.height / 2
+            };
+            cropperRef.value.zoom(Math.max(0.1, (1 / ratio) * 0.995), center);
+            await nextTick();
+        }
+    }
+
+    /**
+     *
+     */
+    async function ensureStencilFitsEditableArea() {
+        if (!cropperRef.value) return;
+        for (let i = 0; i < AUTO_FIT_MAX_STEPS; i += 1) {
+            const result = cropperRef.value.getResult();
+            if (!result?.coordinates || !result?.visibleArea) return;
+            const { x: marginX, y: marginY } = getVisibleAreaMarginInImageUnits(result);
+            const maxStencilWidth = Math.max(1, result.visibleArea.width - marginX * 2);
+            const maxStencilHeight = Math.max(1, result.visibleArea.height - marginY * 2);
+            const overflowRatio = Math.max(
+                result.coordinates.width / maxStencilWidth,
+                result.coordinates.height / maxStencilHeight
+            );
+            if (overflowRatio <= 1 + AUTO_FIT_EPSILON) {
+                return;
+            }
+
+            const center = {
+                left: result.visibleArea.left + result.visibleArea.width / 2,
+                top: result.visibleArea.top + result.visibleArea.height / 2
+            };
+            cropperRef.value.zoom(Math.max(0.1, (1 / overflowRatio) * 0.995), center);
+            await nextTick();
+        }
+    }
+
+    /**
+     * Detect whether editable area exceeds image bounds.
+     * @param {any} result
+     * @param {number} marginX
+     * @param {number} marginY
+     */
+    function getImageOverflowFromVisibleArea(result, marginX, marginY) {
+        const imageWidth = result.image?.width || 0;
+        const imageHeight = result.image?.height || 0;
+        const left = result.visibleArea.left || 0;
+        const top = result.visibleArea.top || 0;
+        const right = left + (result.visibleArea.width || 0);
+        const bottom = top + (result.visibleArea.height || 0);
+
+        const overflowLeft = Math.max(0, marginX - left);
+        const overflowTop = Math.max(0, marginY - top);
+        const overflowRight = Math.max(0, right - (imageWidth - marginX));
+        const overflowBottom = Math.max(0, bottom - (imageHeight - marginY));
+
+        return {
+            left: overflowLeft,
+            top: overflowTop,
+            right: overflowRight,
+            bottom: overflowBottom,
+            max: Math.max(overflowLeft, overflowTop, overflowRight, overflowBottom)
+        };
+    }
+
+    /**
+     * Convert UI px margin into cropper image-coordinate units.
+     * @param {any} result
+     */
+    function getVisibleAreaMarginInImageUnits(result) {
+        const root = cropperRef.value?.$el;
+        const boundaries = root?.querySelector?.('.vue-advanced-cropper__boundaries');
+        const target = boundaries || root;
+        const rect = target?.getBoundingClientRect?.();
+        if (!rect?.width || !rect?.height) {
+            return {
+                x: VISIBLE_AREA_MARGIN_PX,
+                y: VISIBLE_AREA_MARGIN_PX
+            };
+        }
+        return {
+            x: (result.visibleArea.width / rect.width) * VISIBLE_AREA_MARGIN_PX,
+            y: (result.visibleArea.height / rect.height) * VISIBLE_AREA_MARGIN_PX
+        };
     }
 
     /**
@@ -314,6 +517,7 @@
      */
     function handleReset() {
         freeMode.value = false;
+        fillMode.value = 'vertical';
         scheduleFitCropper();
     }
 

@@ -2093,6 +2093,8 @@
             "zoom_out": "Zoom Out",
             "mode_fit": "Switch to Fit Mode",
             "mode_free": "Switch to Free Mode",
+            "fill_vertical": "Fill Frame Vertically",
+            "fill_horizontal": "Fill Frame Horizontally",
             "reset": "Reset"
         },
         "gallery_select": {
