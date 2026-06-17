@@ -266,7 +266,8 @@
     );
 
     /**
-     * @param result
+     * Keep zoom slider and ratio state in sync with cropper viewport changes.
+     * @param {any} result
      */
     function onCropperChange(result) {
         if (!result.visibleArea || !result.image) return;
@@ -277,7 +278,8 @@
     }
 
     /**
-     * @param value
+     * Apply slider value as logarithmic zoom factor.
+     * @param {number[]} value
      */
     function onZoomCommit(value) {
         const target = value[0];
@@ -287,7 +289,8 @@
     }
 
     /**
-     *
+     * Run fill workflow: normalize editable area, apply vertical/horizontal fill, then enforce stencil bounds.
+     * @param {'vertical' | 'horizontal'} mode
      */
     async function applyFillMode(mode) {
         if (!cropperRef.value) return;
@@ -316,7 +319,7 @@
     }
 
     /**
-     *
+     * Execute current fill mode and flip to the next mode for the next click.
      */
     async function toggleFillMode() {
         await applyFillMode(fillMode.value);
@@ -324,7 +327,7 @@
     }
 
     /**
-     *
+     * Reset stencil to full image bounds.
      */
     function fillCropper() {
         cropperRef.value?.setCoordinates(
@@ -342,6 +345,7 @@
     }
 
     /**
+     * Compute centered stencil coordinates for vertical/horizontal fill against current image bounds.
      * @param {'vertical' | 'horizontal'} mode
      * @param {number} imageWidth
      * @param {number} imageHeight
@@ -371,8 +375,7 @@
     }
 
     /**
-     * Keep the stencil inside the visible editor area by zooming out when needed.
-     * @param {any} [result]
+     * Zoom out (size parameter) until the entire image fits inside editable area with margin.
      */
     async function normalizeEditableAreaForFill() {
         if (!cropperRef.value) return;
@@ -401,7 +404,7 @@
     }
 
     /**
-     *
+     * Ensure stencil stays inside editable area by applying additional zoom-out if needed.
      */
     async function ensureStencilFitsEditableArea() {
         if (!cropperRef.value) return;
@@ -429,7 +432,7 @@
     }
 
     /**
-     * Convert UI px margin into cropper image-coordinate units.
+     * Convert UI margin in CSS pixels into cropper image-coordinate units.
      * @param {any} result
      */
     function getVisibleAreaMarginInImageUnits(result) {
@@ -450,7 +453,7 @@
     }
 
     /**
-     *
+     * Re-apply default fit crop after layout settles, unless free mode became active again.
      */
     async function scheduleFitCropper() {
         const token = ++fitCropperToken.value;
@@ -465,7 +468,7 @@
     }
 
     /**
-     *
+     * Initialize cropper with fit behavior when dialog becomes ready.
      */
     function handleCropperReady() {
         if (!freeMode.value) {
@@ -474,14 +477,14 @@
     }
 
     /**
-     *
+     * Toggle between fit mode and free crop mode.
      */
     function toggleMode() {
         freeMode.value = !freeMode.value;
     }
 
     /**
-     *
+     * Reset mode and crop state to dialog defaults.
      */
     function handleReset() {
         freeMode.value = false;
@@ -490,7 +493,7 @@
     }
 
     /**
-     *
+     * Close dialog and clear crop state.
      */
     function cancelCrop() {
         resetCropState();
@@ -498,7 +501,7 @@
     }
 
     /**
-     *
+     * Export cropped image blob and emit confirm event.
      */
     async function onConfirmCrop() {
         loading.value = true;
