@@ -215,7 +215,7 @@
     const fitCropperToken = ref(0);
     const fillMode = ref('vertical');
     const VISIBLE_AREA_MARGIN_PX = 10;
-    const AUTO_FIT_MAX_STEPS = 4;
+    const AUTO_FIT_MAX_STEPS = 8;
     const AUTO_FIT_EPSILON = 0.001;
 
     const fillTooltip = computed(() => {
@@ -291,7 +291,7 @@
      */
     async function applyFillMode(mode) {
         if (!cropperRef.value) return;
-        await ensureImageFitsEditableArea();
+        await normalizeEditableAreaForFill();
 
         cropperRef.value.setCoordinates(({ imageSize, coordinates }) => {
             if (!imageSize?.width || !imageSize?.height) {
@@ -309,7 +309,7 @@
             );
         }, {
             transitions: true,
-            autoZoom: false
+            autoZoom: true
         });
         await nextTick();
         await ensureStencilFitsEditableArea();
@@ -374,32 +374,28 @@
      * Keep the stencil inside the visible editor area by zooming out when needed.
      * @param {any} [result]
      */
-    async function ensureImageFitsEditableArea() {
+    async function normalizeEditableAreaForFill() {
         if (!cropperRef.value) return;
         for (let i = 0; i < AUTO_FIT_MAX_STEPS; i += 1) {
             const result = cropperRef.value.getResult();
             if (!result?.visibleArea || !result?.image) return;
             const { x: marginX, y: marginY } = getVisibleAreaMarginInImageUnits(result);
-            const imageOverflow = getImageOverflowFromVisibleArea(result, marginX, marginY);
-            if (imageOverflow.max <= AUTO_FIT_EPSILON) {
-                return;
-            }
-
             const targetVisibleWidth = result.image.width + marginX * 2;
             const targetVisibleHeight = result.image.height + marginY * 2;
-            const ratio = Math.max(
+            const requiredScale = Math.max(
                 targetVisibleWidth / Math.max(1, result.visibleArea.width),
                 targetVisibleHeight / Math.max(1, result.visibleArea.height)
             );
-            if (ratio <= 1 + AUTO_FIT_EPSILON) {
+            if (requiredScale <= 1 + AUTO_FIT_EPSILON) {
                 return;
             }
 
             const center = {
-                left: result.image.width / 2,
-                top: result.image.height / 2
+                left: result.visibleArea.left + result.visibleArea.width / 2,
+                top: result.visibleArea.top + result.visibleArea.height / 2
             };
-            cropperRef.value.zoom(Math.max(0.1, (1 / ratio) * 0.995), center);
+            // Zoom out until the image fits into editable area; this also updates the size slider state.
+            cropperRef.value.zoom(Math.max(0.1, (1 / requiredScale) * 0.995), center);
             await nextTick();
         }
     }
@@ -430,34 +426,6 @@
             cropperRef.value.zoom(Math.max(0.1, (1 / overflowRatio) * 0.995), center);
             await nextTick();
         }
-    }
-
-    /**
-     * Detect whether editable area exceeds image bounds.
-     * @param {any} result
-     * @param {number} marginX
-     * @param {number} marginY
-     */
-    function getImageOverflowFromVisibleArea(result, marginX, marginY) {
-        const imageWidth = result.image?.width || 0;
-        const imageHeight = result.image?.height || 0;
-        const left = result.visibleArea.left || 0;
-        const top = result.visibleArea.top || 0;
-        const right = left + (result.visibleArea.width || 0);
-        const bottom = top + (result.visibleArea.height || 0);
-
-        const overflowLeft = Math.max(0, marginX - left);
-        const overflowTop = Math.max(0, marginY - top);
-        const overflowRight = Math.max(0, right - (imageWidth - marginX));
-        const overflowBottom = Math.max(0, bottom - (imageHeight - marginY));
-
-        return {
-            left: overflowLeft,
-            top: overflowTop,
-            right: overflowRight,
-            bottom: overflowBottom,
-            max: Math.max(overflowLeft, overflowTop, overflowRight, overflowBottom)
-        };
     }
 
     /**
